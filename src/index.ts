@@ -185,7 +185,7 @@ streamer.client.on('messageCreate', async (message) => {
                     playVideo(message, video.path, videoname);
                 }
                 break;
-            case 'playlink':
+                case 'playlink':
                 {
                     if (streamStatus.joined) {
                         sendError(message, 'Already joined');
@@ -196,6 +196,13 @@ streamer.client.on('messageCreate', async (message) => {
 
                     if (!link) {
                         await sendError(message, 'Please provide a link.');
+                        return;
+                    }
+
+                    // Check for the specific streaming URL
+                    if (link === 'https://tv.nknews.org/tvdash/stream.mpd') {
+                        sendPlaying(message, "NK News Stream");
+                        playVideo(message, link, "NK News Stream");
                         return;
                     }
 
@@ -235,6 +242,7 @@ streamer.client.on('messageCreate', async (message) => {
                     }
                 }
                 break;
+
             case 'ytplay':
                 {
                     const title = args.length > 1 ? args.slice(1).join(' ') : args[1] || args.shift() || '';
@@ -441,6 +449,48 @@ async function playVideo(message: Message, videoSource: string, title?: string) 
     let isLiveYouTubeStream = false;
 
     try {
+         // --- PATCH FOR NK NEWS DASH STREAM ---
+         // --- PATCH FOR NK NEWS DASH STREAM ---
+        if (videoSource === 'https://tv.nknews.org/tvdash/stream.mpd') {
+          logger.info("NK News DASH stream detected, using yt-dlp with browser headers...");
+          downloadInProgressMessage = await message.reply(`📥 Fetching NK News Stream...`).catch(() => null);
+
+          const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36";
+          const referer = "https://tv.nknews.org/";
+          const { spawn } = await import("child_process");
+          const fs = await import("fs/promises");
+          const path = await import("path");
+
+          let currentTempFile = null;
+          let ffmpegProcess = null;
+
+          const tempPath = `/tmp/nknews_${Date.now()}.mp4`;
+          const ytDlpArgs = [
+            "--no-playlist",
+            "--add-header", `User-Agent: ${userAgent}`,
+            "--add-header", `Referer: ${referer}`,
+            "--hls-use-mpegts",
+            "--live-from-start",
+            "-o", tempPath,
+            videoSource
+          ];
+
+          await new Promise((resolve, reject) => {
+            const ytDlp = spawn("yt-dlp", ytDlpArgs);
+            ytDlp.stderr.on("data", (data) => logger.error("yt-dlp error:", data.toString()));
+            ytDlp.on("close", (code) => {
+              if (code === 0) resolve();
+              else reject(new Error("yt-dlp failed"));
+            });
+          });
+
+          tempFilePath = tempPath;
+          inputForFfmpeg = tempFilePath;
+          if (downloadInProgressMessage) await downloadInProgressMessage.delete().catch(() => {});
+        }
+        // --- END PATCH ---
+         // --- END PATCH ---
+
         if (typeof videoSource === 'string' && (videoSource.includes('youtube.com/') || videoSource.includes('youtu.be/'))) {
             const videoDetails = await youtube.getVideoInfo(videoSource);
 
